@@ -79,10 +79,38 @@ services:
 
       ## MySQL格式: mysql://user:password@host:port/database
       ## Redis格式: redis://host:port/db 或 redis://user:password@host:port/db (SSL: rediss://)
+    # WARP 网络代理支持 - 自动安装并启动
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.ip_forward=1
 
 volumes:
   grok_data:
 ```
+
+### WARP 网络代理自动安装
+
+Docker 镜像已内置自动安装和启动 **Cloudflare WARP** 网络代理功能：
+
+- **自动安装**：容器启动时自动检测并安装 WARP 客户端
+- **自动连接**：服务启动前自动连接 WARP 网络
+- **透明代理**：通过 WARP 为所有出站连接提供隐私保护和加速
+
+**WARP 配置说明：**
+
+| 配置项 | 说明 |
+|--------|------|
+| `cap_add: NET_ADMIN, SYS_ADMIN` | WARP 运行所需的 Linux 容器能力 |
+| `net.ipv6.conf.all.disable_ipv6=0` | 启用 IPv6 支持（WARP 使用） |
+| `net.ipv4.ip_forward=1` | 启用 IPv4 转发 |
+
+**禁用 WARP（可选）：**
+
+如不需要 WARP 代理，可使用自己的 Docker 镜像或修改启动脚本。
+自动检测机制确保即使未安装 WARP，应用仍能正常运行。
 
 ### 环境变量说明
 
