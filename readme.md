@@ -372,6 +372,15 @@ Docker 镜像已内置自动安装和启动 **Cloudflare WARP** 网络代理功�
    ls -la /run/dbus/system_bus_socket
    ```
 
+4. **故障排除脚本**：
+   ```bash
+   # 详细故障排除和诊断
+   ./scripts/warp_troubleshoot.sh
+   
+   # 快速修复常见问题
+   ./scripts/warp_quickfix.sh
+   ```
+
 **禁用 WARP（可选）：**
 
 如不需要 WARP 代理，可使用自己的 Docker 镜像或修改启动脚本。

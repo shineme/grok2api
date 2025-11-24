@@ -114,33 +114,147 @@ ps aux | grep warp-svc
 
 ## 故障排除
 
-### WARP未连接
-1. 检查容器是否有足够权限：
+### 自动故障排除
+
+我们提供了两个自动化脚本来帮助解决WARP连接问题：
+
+#### 1. 详细故障排除脚本
+
+```bash
+# 在容器内或本地运行
+./scripts/warp_troubleshoot.sh
+```
+
+该脚本会全面检查：
+- 运行环境（Docker/本地）
+- 系统权限（TUN设备访问）
+- WARP安装和版本
+- D-Bus服务状态
+- WARP守护进程状态
+- 网络连通性
+
+并提供针对性的修复建议和自动修复选项。
+
+#### 2. 快速修复脚本
+
+```bash
+# 快速修复常见WARP连接问题
+./scripts/warp_quickfix.sh
+```
+
+该脚本会自动执行以下修复步骤：
+1. 清理旧的WARP和D-Bus进程
+2. 删除旧的socket文件
+3. 重新创建必要目录
+4. 启动D-Bus服务
+5. 启动WARP守护进程
+6. 尝试连接WARP
+
+适用于大多数常见的WARP连接问题。
+
+### 常见问题解决
+
+#### WARP未连接
+1. **检查容器权限**：
    ```bash
-   docker run --cap-add=NET_ADMIN --cap-add=SYS_ADMIN ...
+   docker run --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+     --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+     --sysctl net.ipv4.ip_forward=1 \
+     your-image
    ```
 
-2. 检查系统参数：
+2. **启动D-Bus服务**：
    ```bash
-   --sysctl net.ipv6.conf.all.disable_ipv6=0
-   --sysctl net.ipv4.ip_forward=1
+   mkdir -p /run/dbus
+   dbus-daemon --system --nofork --nopidfile --address=unix:path=/run/dbus/system_bus_socket &
    ```
 
-3. 手动连接：
+3. **启动WARP守护进程**：
    ```bash
-   docker exec <container_id> warp-cli connect
+   warp-svc &
+   sleep 2
    ```
 
-### D-Bus服务异常
-1. 重启D-Bus：
+4. **连接WARP**：
    ```bash
-   docker exec <container_id> dbus-daemon --system --nofork --nopidfile --address=unix:path=/run/dbus/system_bus_socket &
+   warp-cli connect
    ```
 
-### 网络不通
-1. 检查容器网络配置
-2. 验证DNS设置
-3. 检查防火墙规则
+#### "Registration Missing due to: Daemon Startup" 错误
+
+这个错误通常表示WARP守护进程启动失败：
+
+1. **重启守护进程**：
+   ```bash
+   pkill warp-svc
+   warp-svc &
+   sleep 3
+   warp-cli connect
+   ```
+
+2. **检查D-Bus服务**：
+   ```bash
+   ls -la /run/dbus/system_bus_socket
+   ```
+
+3. **在Docker容器中运行**：
+   确保使用正确的权限和系统参数。
+
+#### D-Bus服务异常
+
+1. **手动启动D-Bus**：
+   ```bash
+   mkdir -p /run/dbus
+   dbus-daemon --system --nofork --nopidfile --address=unix:path=/run/dbus/system_bus_socket &
+   ```
+
+2. **检查socket权限**：
+   ```bash
+   ls -la /run/dbus/
+   ```
+
+3. **清理旧的socket文件**：
+   ```bash
+   rm -f /run/dbus/system_bus_socket
+   # 重新启动D-Bus服务
+   ```
+
+#### 网络连通性问题
+
+1. **测试基础连接**：
+   ```bash
+   curl -I https://1.1.1.1
+   ```
+
+2. **检查DNS解析**：
+   ```bash
+   nslookup 1.1.1.1
+   ```
+
+3. **查看容器网络**：
+   ```bash
+   ip addr show
+   route -n
+   ```
+
+### 本地开发环境
+
+如果在本地开发环境中，WARP功能可能受限：
+- 建议使用Docker容器进行开发和测试
+- 或者手动安装WARP客户端（需要root权限）
+
+### 日志查看
+
+```bash
+# 查看WARP服务日志
+journalctl -u warp-svc -f
+
+# 查看系统日志
+dmesg | grep -i warp
+
+# 查看D-Bus日志
+journalctl -u dbus -f
+```
 
 ## 测试脚本
 

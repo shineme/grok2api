@@ -34,6 +34,9 @@ sleep 10
 # 检查容器内WARP状态
 echo -e "${YELLOW}[4/4] 检查WARP状态...${NC}"
 
+echo -e "\n${GREEN}=== 运行故障排除脚本 ===${NC}"
+docker exec $CONTAINER_ID /app/scripts/warp_troubleshoot.sh || echo -e "${RED}故障排除脚本执行失败${NC}"
+
 echo -e "\n${GREEN}=== WARP安装检查 ===${NC}"
 docker exec $CONTAINER_ID which warp-cli || echo -e "${RED}warp-cli未找到${NC}"
 
