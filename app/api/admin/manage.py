@@ -1,6 +1,8 @@
 """管理接口 - Token管理和系统配置"""
 
 import secrets
+import asyncio
+import subprocess
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -191,6 +193,250 @@ def _format_size(size_bytes: int) -> str:
     if size_mb < 1:
         return f"{size_bytes / BYTES_PER_KB:.1f} KB"
     return f"{size_mb:.1f} MB"
+
+
+async def _check_warp_status() -> Dict[str, Any]:
+    """检查WARP连接状态"""
+    try:
+        # 检查warp-cli命令是否存在
+        check_cmd = ["which", "warp-cli"]
+        result = await asyncio.create_subprocess_exec(
+            *check_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        
+        if result.returncode != 0:
+            return {
+                "installed": False,
+                "connected": False,
+                "status": "未安装",
+                "error": "warp-cli命令未找到",
+                "suggestions": [
+                    "在Docker容器中运行应用以使用WARP功能",
+                    "或者手动安装Cloudflare WARP客户端"
+                ]
+            }
+        
+        # 检查warp-svc进程是否运行
+        ps_cmd = ["ps", "aux"]
+        result = await asyncio.create_subprocess_exec(
+            *ps_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        ps_output = stdout.decode('utf-8')
+        
+        warp_svc_running = "warp-svc" in ps_output
+        
+        if not warp_svc_running:
+            return {
+                "installed": True,
+                "connected": False,
+                "status": "守护进程未运行",
+                "error": "warp-svc守护进程未启动",
+                "details": "WARP已安装但守护进程未运行",
+                "suggestions": [
+                    "启动warp-svc守护进程: warp-svc &",
+                    "检查D-Bus服务是否正常运行",
+                    "在Docker容器中运行以确保正确的权限配置"
+                ]
+            }
+        
+        # 获取WARP状态
+        status_cmd = ["warp-cli", "status"]
+        result = await asyncio.create_subprocess_exec(
+            *status_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        
+        status_output = stdout.decode('utf-8').strip()
+        error_output = stderr.decode('utf-8').strip()
+        
+        if result.returncode != 0:
+            # 分析具体错误
+            if "Registration Missing" in error_output:
+                error_detail = "WARP注册缺失，通常是因为守护进程启动问题"
+                suggestions = [
+                    "重启warp-svc守护进程",
+                    "检查D-Bus服务状态: ls -la /run/dbus/system_bus_socket",
+                    "在具有适当权限的Docker容器中运行"
+                ]
+            elif "Daemon Startup" in error_output:
+                error_detail = "WARP守护进程启动失败"
+                suggestions = [
+                    "确保容器有NET_ADMIN和SYS_ADMIN权限",
+                    "检查系统内核版本兼容性",
+                    "重启容器或重新安装WARP"
+                ]
+            else:
+                error_detail = error_output or "获取状态失败"
+                suggestions = [
+                    "检查WARP服务状态",
+                    "查看系统日志获取详细错误信息"
+                ]
+            
+            return {
+                "installed": True,
+                "connected": False,
+                "status": "错误",
+                "error": error_detail,
+                "details": error_output,
+                "suggestions": suggestions
+            }
+        
+        # 解析状态输出
+        is_connected = "Connected" in status_output
+        is_connecting = "Connecting" in status_output
+        is_disconnected = "Disconnected" in status_output
+        
+        if is_connected:
+            status = "已连接"
+        elif is_connecting:
+            status = "连接中"
+        elif is_disconnected:
+            status = "未连接"
+        else:
+            status = "未知状态"
+        
+        return {
+            "installed": True,
+            "connected": is_connected,
+            "status": status,
+            "details": status_output,
+            "error": None,
+            "warp_svc_running": warp_svc_running
+        }
+        
+    except Exception as e:
+        logger.error(f"[Admin] 检查WARP状态异常: {e}")
+        return {
+            "installed": False,
+            "connected": False,
+            "status": "检查失败",
+            "error": f"检查异常: {str(e)}",
+            "suggestions": [
+                "检查系统权限配置",
+                "确保在支持的环境中运行"
+            ]
+        }
+
+
+async def _check_dbus_status() -> Dict[str, Any]:
+    """检查D-Bus服务状态"""
+    try:
+        # 检查D-Bus socket是否存在
+        dbus_socket = Path("/run/dbus/system_bus_socket")
+        socket_exists = dbus_socket.exists()
+        
+        # 检查D-Bus进程是否运行
+        ps_cmd = ["ps", "aux"]
+        result = await asyncio.create_subprocess_exec(
+            *ps_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        ps_output = stdout.decode('utf-8')
+        
+        dbus_daemon_running = "dbus-daemon" in ps_output
+        
+        if socket_exists and dbus_daemon_running:
+            return {
+                "running": True,
+                "status": "运行中",
+                "socket_exists": True,
+                "daemon_running": True
+            }
+        elif not socket_exists and not dbus_daemon_running:
+            return {
+                "running": False,
+                "status": "未运行",
+                "socket_exists": False,
+                "daemon_running": False,
+                "suggestions": [
+                    "启动D-Bus服务: dbus-daemon --system --nofork --nopidfile --address=unix:path=/run/dbus/system_bus_socket &",
+                    "确保在Docker容器中运行以获得完整的WARP支持",
+                    "检查系统是否安装了dbus包"
+                ]
+            }
+        elif not socket_exists and dbus_daemon_running:
+            return {
+                "running": False,
+                "status": "socket缺失",
+                "socket_exists": False,
+                "daemon_running": True,
+                "error": "D-Bus守护进程运行但socket文件不存在",
+                "suggestions": [
+                    "创建/run/dbus目录: mkdir -p /run/dbus",
+                    "重启D-Bus守护进程",
+                    "检查文件系统权限"
+                ]
+            }
+        else:  # socket_exists but not dbus_daemon_running
+            return {
+                "running": False,
+                "status": "守护进程异常",
+                "socket_exists": True,
+                "daemon_running": False,
+                "error": "D-Bus socket存在但守护进程未运行",
+                "suggestions": [
+                    "检查socket文件是否有效",
+                    "重启D-Bus守护进程",
+                    "清理旧的socket文件后重启服务"
+                ]
+            }
+            
+    except Exception as e:
+        logger.error(f"[Admin] 检查D-Bus状态异常: {e}")
+        return {
+            "running": False,
+            "status": "检查失败",
+            "error": str(e),
+            "suggestions": [
+                "检查系统权限",
+                "确保在支持的环境中运行"
+            ]
+        }
+
+
+async def _check_network_connectivity() -> Dict[str, Any]:
+    """检查网络连通性"""
+    try:
+        # 使用curl检查连接到Cloudflare
+        test_cmd = ["curl", "-s", "--connect-timeout", "5", "--max-time", "10", "https://1.1.1.1"]
+        result = await asyncio.create_subprocess_exec(
+            *test_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        
+        if result.returncode == 0:
+            return {
+                "connected": True,
+                "status": "连通",
+                "error": None
+            }
+        else:
+            error_msg = stderr.decode('utf-8').strip() if stderr else "连接超时"
+            return {
+                "connected": False,
+                "status": "不通",
+                "error": error_msg
+            }
+            
+    except Exception as e:
+        logger.error(f"[Admin] 检查网络连通性异常: {e}")
+        return {
+            "connected": False,
+            "status": "检查失败",
+            "error": str(e)
+        }
 
 
 # === 页面路由 ===
@@ -620,3 +866,77 @@ async def test_token(request: TestTokenRequest, _: bool = Depends(verify_admin_s
     except Exception as e:
         logger.error(f"[Admin] Token测试异常: {e}")
         raise HTTPException(status_code=500, detail={"error": f"测试失败: {e}", "code": "TEST_TOKEN_ERROR"})
+
+
+@router.get("/api/system/status")
+async def get_system_status(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """获取系统状态信息"""
+    try:
+        logger.debug("[Admin] 开始获取系统状态")
+        
+        # 并行检查各项状态
+        warp_status, dbus_status, network_status = await asyncio.gather(
+            _check_warp_status(),
+            _check_dbus_status(),
+            _check_network_connectivity(),
+            return_exceptions=True
+        )
+        
+        # 处理异常结果
+        if isinstance(warp_status, Exception):
+            logger.error(f"[Admin] WARP状态检查异常: {warp_status}")
+            warp_status = {
+                "installed": False,
+                "connected": False,
+                "status": "检查失败",
+                "error": str(warp_status)
+            }
+        
+        if isinstance(dbus_status, Exception):
+            logger.error(f"[Admin] D-Bus状态检查异常: {dbus_status}")
+            dbus_status = {
+                "running": False,
+                "status": "检查失败",
+                "error": str(dbus_status)
+            }
+        
+        if isinstance(network_status, Exception):
+            logger.error(f"[Admin] 网络连通性检查异常: {network_status}")
+            network_status = {
+                "connected": False,
+                "status": "检查失败",
+                "error": str(network_status)
+            }
+        
+        # 计算整体系统状态
+        system_healthy = (
+            warp_status.get("installed", False) and
+            warp_status.get("connected", False) and
+            dbus_status.get("running", False) and
+            network_status.get("connected", False)
+        )
+        
+        overall_status = "正常" if system_healthy else "异常"
+        
+        # 获取存储模式
+        import os
+        storage_mode = os.getenv("STORAGE_MODE", "file").upper()
+        
+        logger.debug(f"[Admin] 系统状态获取完成 - WARP: {warp_status.get('status')}, D-Bus: {dbus_status.get('status')}, 网络: {network_status.get('status')}")
+        
+        return {
+            "success": True,
+            "data": {
+                "overall_status": overall_status,
+                "healthy": system_healthy,
+                "storage_mode": storage_mode,
+                "warp": warp_status,
+                "dbus": dbus_status,
+                "network": network_status,
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"[Admin] 获取系统状态异常: {e}")
+        raise HTTPException(status_code=500, detail={"error": f"获取失败: {e}", "code": "SYSTEM_STATUS_ERROR"})

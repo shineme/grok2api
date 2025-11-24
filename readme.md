@@ -339,6 +339,48 @@ Docker 镜像已内置自动安装和启动 **Cloudflare WARP** 网络代理功�
 | `net.ipv6.conf.all.disable_ipv6=0` | 启用 IPv6 支持（WARP 使用） |
 | `net.ipv4.ip_forward=1` | 启用 IPv4 转发 |
 
+**WARP 状态检查：**
+
+系统提供多种方式检查 WARP 连接状态：
+
+1. **健康检查端点**：`GET /health`
+   ```bash
+   curl http://localhost:8000/health
+   # 返回示例：{"status": "healthy", "service": "Grok2API", "version": "1.0.3", "warp_connected": true}
+   ```
+
+2. **管理后台系统状态**：`GET /api/system/status`（需要管理员登录）
+   ```bash
+   # 先登录获取token，然后：
+   curl -H "Authorization: Bearer <token>" http://localhost:8000/api/system/status
+   ```
+   返回详细的系统状态信息，包括：
+   - WARP 安装和连接状态
+   - D-Bus 服务状态
+   - 网络连通性测试
+   - 整体系统健康状态
+
+3. **容器内直接检查**：
+   ```bash
+   # 进入容器
+   docker exec -it <container_id> bash
+   
+   # 检查WARP状态
+   warp-cli status
+   
+   # 检查D-Bus服务
+   ls -la /run/dbus/system_bus_socket
+   ```
+
+4. **故障排除脚本**：
+   ```bash
+   # 详细故障排除和诊断
+   ./scripts/warp_troubleshoot.sh
+   
+   # 快速修复常见问题
+   ./scripts/warp_quickfix.sh
+   ```
+
 **禁用 WARP（可选）：**
 
 如不需要 WARP 代理，可使用自己的 Docker 镜像或修改启动脚本。
