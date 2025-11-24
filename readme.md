@@ -227,6 +227,102 @@ docker run -d \
   grok2api:custom
 ```
 
+<br>
+
+## GitHub Actions 自动构建 Docker 镜像
+
+项目已配置 GitHub Actions 自动化工作流，可以自动构建和发布 Docker 镜像到 GitHub Container Registry (ghcr.io)。
+
+### 工作流触发条件
+
+工作流会在以下情况自动触发：
+
+1. **推送到 main 分支**：自动构建并推送 `latest` 标签
+2. **推送版本标签**（如 `v1.0.0`）：自动构建并推送对应版本标签
+3. **Pull Request**：仅构建镜像但不推送（用于验证）
+
+### 支持的架构
+
+自动构建支持多架构镜像：
+- **linux/amd64**：适用于 x86_64 服务器和 PC
+- **linux/arm64**：适用于 ARM 服务器（如 AWS Graviton）
+
+### 镜像标签说明
+
+| 触发条件 | 生成的标签 | 说明 |
+|---------|-----------|------|
+| 推送到 main | `ghcr.io/用户名/仓库名:latest` | 最新主分支版本（多架构） |
+| 推送到 main | `ghcr.io/用户名/仓库名:main` | 主分支版本（多架构） |
+| 推送标签 v1.2.3 | `ghcr.io/用户名/仓库名:v1.2.3` | 指定版本（多架构） |
+| 推送标签 v1.2.3 | `ghcr.io/用户名/仓库名:1.2.3` | 指定版本（多架构） |
+
+### 工作流配置文件
+
+工作流配置位于：`.github/workflows/docker.yml`
+
+**主要特性：**
+- ✅ 多架构构建（amd64 + arm64）
+- ✅ 自动推送到 GitHub Container Registry
+- ✅ 构建缓存加速
+- ✅ 自动版本标签管理
+- ✅ 合并多架构镜像为统一标签
+
+### 如何使用自动构建
+
+#### 方法一：推送到 main 分支（构建 latest）
+
+```bash
+# 提交代码并推送到 main 分支
+git add .
+git commit -m "更新代码"
+git push origin main
+
+# GitHub Actions 会自动构建并推送镜像
+# 镜像地址: ghcr.io/用户名/仓库名:latest
+```
+
+#### 方法二：创建版本标签（发布特定版本）
+
+```bash
+# 创建并推送版本标签
+git tag v1.0.0
+git push origin v1.0.0
+
+# GitHub Actions 会自动构建并推送镜像
+# 镜像地址: ghcr.io/用户名/仓库名:v1.0.0
+#         ghcr.io/用户名/仓库名:1.0.0
+```
+
+### 查看构建状态
+
+1. 访问 GitHub 仓库的 **Actions** 标签页
+2. 查看 "Build Docker Image" 工作流的运行状态
+3. 点击具体的运行实例查看详细日志
+
+### 拉取自动构建的镜像
+
+```bash
+# 拉取最新版本
+docker pull ghcr.io/用户名/仓库名:latest
+
+# 拉取特定版本
+docker pull ghcr.io/用户名/仓库名:v1.0.0
+
+# 拉取特定架构（可选）
+docker pull --platform linux/amd64 ghcr.io/用户名/仓库名:latest
+docker pull --platform linux/arm64 ghcr.io/用户名/仓库名:latest
+```
+
+### 权限配置
+
+GitHub Actions 使用内置的 `GITHUB_TOKEN` 自动进行身份验证，无需额外配置 secrets。如果需要推送到其他镜像仓库（如 Docker Hub），可以添加相应的 secrets：
+
+1. 进入仓库 **Settings** → **Secrets and variables** → **Actions**
+2. 添加需要的 secrets（如 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`）
+3. 修改 `.github/workflows/docker.yml` 添加 Docker Hub 登录步骤
+
+<br>
+
 ### WARP 网络代理自动安装
 
 Docker 镜像已内置自动安装和启动 **Cloudflare WARP** 网络代理功能：
