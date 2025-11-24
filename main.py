@@ -99,11 +99,44 @@ async def root():
 @app.get("/health")
 async def health_check():
     """健康检查接口"""
-    return {
-        "status": "healthy",
-        "service": "Grok2API",
-        "version": "1.0.3"
-    }
+    try:
+        # 简单检查WARP状态（非阻塞）
+        import asyncio
+        import subprocess
+        
+        async def quick_warp_check():
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "warp-cli", "status",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    status_output = stdout.decode('utf-8').strip()
+                    return "Connected" in status_output
+                return False
+            except:
+                return False
+        
+        # 在事件循环中运行检查
+        loop = asyncio.get_event_loop()
+        warp_connected = await quick_warp_check()
+        
+        return {
+            "status": "healthy",
+            "service": "Grok2API",
+            "version": "1.0.3",
+            "warp_connected": warp_connected
+        }
+    except:
+        # 如果检查失败，返回基本状态
+        return {
+            "status": "healthy",
+            "service": "Grok2API",
+            "version": "1.0.3",
+            "warp_connected": None
+        }
 
 # 挂载MCP服务器 
 app.mount("", mcp_app)

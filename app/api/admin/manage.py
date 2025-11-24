@@ -1,6 +1,8 @@
 """管理接口 - Token管理和系统配置"""
 
 import secrets
+import asyncio
+import subprocess
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -191,6 +193,132 @@ def _format_size(size_bytes: int) -> str:
     if size_mb < 1:
         return f"{size_bytes / BYTES_PER_KB:.1f} KB"
     return f"{size_mb:.1f} MB"
+
+
+async def _check_warp_status() -> Dict[str, Any]:
+    """检查WARP连接状态"""
+    try:
+        # 检查warp-cli命令是否存在
+        check_cmd = ["which", "warp-cli"]
+        result = await asyncio.create_subprocess_exec(
+            *check_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        
+        if result.returncode != 0:
+            return {
+                "installed": False,
+                "connected": False,
+                "status": "未安装",
+                "error": "warp-cli命令未找到"
+            }
+        
+        # 获取WARP状态
+        status_cmd = ["warp-cli", "status"]
+        result = await asyncio.create_subprocess_exec(
+            *status_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        
+        status_output = stdout.decode('utf-8').strip()
+        error_output = stderr.decode('utf-8').strip()
+        
+        if result.returncode != 0:
+            return {
+                "installed": True,
+                "connected": False,
+                "status": "错误",
+                "error": error_output or "获取状态失败"
+            }
+        
+        # 解析状态输出
+        is_connected = "Connected" in status_output
+        is_connecting = "Connecting" in status_output
+        is_disconnected = "Disconnected" in status_output
+        
+        status = "已连接" if is_connected else ("连接中" if is_connecting else "未连接")
+        
+        return {
+            "installed": True,
+            "connected": is_connected,
+            "status": status,
+            "details": status_output,
+            "error": None
+        }
+        
+    except Exception as e:
+        logger.error(f"[Admin] 检查WARP状态异常: {e}")
+        return {
+            "installed": False,
+            "connected": False,
+            "status": "检查失败",
+            "error": str(e)
+        }
+
+
+async def _check_dbus_status() -> Dict[str, Any]:
+    """检查D-Bus服务状态"""
+    try:
+        # 检查D-Bus socket是否存在
+        dbus_socket = Path("/run/dbus/system_bus_socket")
+        if dbus_socket.exists():
+            return {
+                "running": True,
+                "status": "运行中",
+                "socket_exists": True
+            }
+        else:
+            return {
+                "running": False,
+                "status": "未运行",
+                "socket_exists": False
+            }
+    except Exception as e:
+        logger.error(f"[Admin] 检查D-Bus状态异常: {e}")
+        return {
+            "running": False,
+            "status": "检查失败",
+            "error": str(e)
+        }
+
+
+async def _check_network_connectivity() -> Dict[str, Any]:
+    """检查网络连通性"""
+    try:
+        # 使用curl检查连接到Cloudflare
+        test_cmd = ["curl", "-s", "--connect-timeout", "5", "--max-time", "10", "https://1.1.1.1"]
+        result = await asyncio.create_subprocess_exec(
+            *test_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await result.communicate()
+        
+        if result.returncode == 0:
+            return {
+                "connected": True,
+                "status": "连通",
+                "error": None
+            }
+        else:
+            error_msg = stderr.decode('utf-8').strip() if stderr else "连接超时"
+            return {
+                "connected": False,
+                "status": "不通",
+                "error": error_msg
+            }
+            
+    except Exception as e:
+        logger.error(f"[Admin] 检查网络连通性异常: {e}")
+        return {
+            "connected": False,
+            "status": "检查失败",
+            "error": str(e)
+        }
 
 
 # === 页面路由 ===
@@ -620,3 +748,77 @@ async def test_token(request: TestTokenRequest, _: bool = Depends(verify_admin_s
     except Exception as e:
         logger.error(f"[Admin] Token测试异常: {e}")
         raise HTTPException(status_code=500, detail={"error": f"测试失败: {e}", "code": "TEST_TOKEN_ERROR"})
+
+
+@router.get("/api/system/status")
+async def get_system_status(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """获取系统状态信息"""
+    try:
+        logger.debug("[Admin] 开始获取系统状态")
+        
+        # 并行检查各项状态
+        warp_status, dbus_status, network_status = await asyncio.gather(
+            _check_warp_status(),
+            _check_dbus_status(),
+            _check_network_connectivity(),
+            return_exceptions=True
+        )
+        
+        # 处理异常结果
+        if isinstance(warp_status, Exception):
+            logger.error(f"[Admin] WARP状态检查异常: {warp_status}")
+            warp_status = {
+                "installed": False,
+                "connected": False,
+                "status": "检查失败",
+                "error": str(warp_status)
+            }
+        
+        if isinstance(dbus_status, Exception):
+            logger.error(f"[Admin] D-Bus状态检查异常: {dbus_status}")
+            dbus_status = {
+                "running": False,
+                "status": "检查失败",
+                "error": str(dbus_status)
+            }
+        
+        if isinstance(network_status, Exception):
+            logger.error(f"[Admin] 网络连通性检查异常: {network_status}")
+            network_status = {
+                "connected": False,
+                "status": "检查失败",
+                "error": str(network_status)
+            }
+        
+        # 计算整体系统状态
+        system_healthy = (
+            warp_status.get("installed", False) and
+            warp_status.get("connected", False) and
+            dbus_status.get("running", False) and
+            network_status.get("connected", False)
+        )
+        
+        overall_status = "正常" if system_healthy else "异常"
+        
+        # 获取存储模式
+        import os
+        storage_mode = os.getenv("STORAGE_MODE", "file").upper()
+        
+        logger.debug(f"[Admin] 系统状态获取完成 - WARP: {warp_status.get('status')}, D-Bus: {dbus_status.get('status')}, 网络: {network_status.get('status')}")
+        
+        return {
+            "success": True,
+            "data": {
+                "overall_status": overall_status,
+                "healthy": system_healthy,
+                "storage_mode": storage_mode,
+                "warp": warp_status,
+                "dbus": dbus_status,
+                "network": network_status,
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"[Admin] 获取系统状态异常: {e}")
+        raise HTTPException(status_code=500, detail={"error": f"获取失败: {e}", "code": "SYSTEM_STATUS_ERROR"})
