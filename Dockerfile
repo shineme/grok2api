@@ -19,12 +19,24 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# 安装 WARP 和其他系统依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    gnupg \
+    ca-certificates \
+    lsb-release && \
+    curl https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends cloudflare-warp && \
+    rm -rf /var/lib/apt/lists/*
+
 # 清理基础镜像中的冗余文件
 RUN rm -rf /usr/share/doc/* \
     /usr/share/man/* \
     /usr/share/locale/* \
     /var/cache/apt/* \
-    /var/lib/apt/lists/* \
     /tmp/* \
     /var/tmp/*
 
@@ -38,9 +50,13 @@ RUN mkdir -p /app/logs /app/data/temp/image /app/data/temp/video
 COPY app/ ./app/
 COPY data/setting.toml ./data/setting.toml
 COPY main.py .
+COPY docker-entrypoint.sh .
 
 # 创建默认的 token.json 文件
 RUN echo '{"ssoNormal": {}, "ssoSuper": {}}' > /app/data/token.json
+
+# 使启动脚本可执行
+RUN chmod +x /app/docker-entrypoint.sh
 
 # 删除 Python 字节码和缓存
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -48,4 +64,4 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
