@@ -58,9 +58,78 @@ curl https://你的服务器地址/v1/chat/completions \
 
 <br>
 
-## 如何部署
+## 如何运行环境
 
-### docker-compose
+### 方式一：本地开发运行（推荐用于开发调试）
+
+**前置要求：**
+- Python 3.11 或更高版本
+- pip 包管理器
+
+**步骤：**
+
+1. **克隆项目**
+```bash
+git clone <repository-url>
+cd grok2api
+```
+
+2. **创建虚拟环境**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# 或
+.venv\Scripts\activate  # Windows
+```
+
+3. **安装依赖**
+```bash
+pip install -r requirements.txt
+```
+
+4. **配置环境变量（可选）**
+```bash
+# 创建 .env 文件（可选）
+export STORAGE_MODE=file  # 可选：file, mysql, redis
+# export DATABASE_URL=mysql://user:password@host:3306/grok2api  # MySQL/Redis 时需要
+```
+
+5. **启动服务**
+```bash
+# 方式1：使用 uvicorn 直接运行（推荐，支持热重载）
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# 方式2：使用 Python 运行主文件（端口 8001）
+python main.py
+```
+
+6. **访问服务**
+- 使用方式1（端口 8000）：
+  - API 文档：http://localhost:8000/docs
+  - 管理后台：http://localhost:8000/login
+  - 健康检查：http://localhost:8000/health
+- 使用方式2（端口 8001）：
+  - API 文档：http://localhost:8001/docs
+  - 管理后台：http://localhost:8001/login
+  - 健康检查：http://localhost:8001/health
+
+**注意事项：**
+- 默认管理员账号：`admin` / `admin`（首次登录后建议修改）
+- 本地运行不包含 WARP 代理，如需代理请配置 `proxy_url`
+- 配置文件位于 `data/setting.toml`
+- Token 数据存储在 `data/token.json`（file 模式）
+
+<br>
+
+### 方式二：Docker Compose 运行（推荐用于生产部署）
+
+**前置要求：**
+- Docker
+- Docker Compose
+
+**步骤：**
+
+1. **创建 `docker-compose.yml` 文件**
 
 ```yaml
 services:
@@ -89,6 +158,73 @@ services:
 
 volumes:
   grok_data:
+```
+
+2. **启动服务**
+```bash
+docker-compose up -d
+```
+
+3. **查看日志**
+```bash
+docker-compose logs -f
+```
+
+4. **停止服务**
+```bash
+docker-compose down
+```
+
+<br>
+
+### 方式三：Docker 运行
+
+**步骤：**
+
+1. **拉取镜像**
+```bash
+docker pull ghcr.io/chenyme/grok2api:latest
+```
+
+2. **运行容器**
+```bash
+docker run -d \
+  --name grok2api \
+  -p 8000:8000 \
+  -v grok_data:/app/data \
+  -v ./logs:/app/logs \
+  -e STORAGE_MODE=file \
+  --cap-add NET_ADMIN \
+  --cap-add SYS_ADMIN \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --sysctl net.ipv4.ip_forward=1 \
+  ghcr.io/chenyme/grok2api:latest
+```
+
+<br>
+
+### 方式四：从源码构建 Docker 镜像
+
+**步骤：**
+
+1. **构建镜像**
+```bash
+docker build -t grok2api:custom .
+```
+
+2. **运行容器**
+```bash
+docker run -d \
+  --name grok2api \
+  -p 8000:8000 \
+  -v grok_data:/app/data \
+  -v ./logs:/app/logs \
+  -e STORAGE_MODE=file \
+  --cap-add NET_ADMIN \
+  --cap-add SYS_ADMIN \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --sysctl net.ipv4.ip_forward=1 \
+  grok2api:custom
 ```
 
 ### WARP 网络代理自动安装
