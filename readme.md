@@ -58,9 +58,78 @@ curl https://你的服务器地址/v1/chat/completions \
 
 <br>
 
-## 如何部署
+## 如何运行环境
 
-### docker-compose
+### 方式一：本地开发运行（推荐用于开发调试）
+
+**前置要求：**
+- Python 3.11 或更高版本
+- pip 包管理器
+
+**步骤：**
+
+1. **克隆项目**
+```bash
+git clone <repository-url>
+cd grok2api
+```
+
+2. **创建虚拟环境**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# 或
+.venv\Scripts\activate  # Windows
+```
+
+3. **安装依赖**
+```bash
+pip install -r requirements.txt
+```
+
+4. **配置环境变量（可选）**
+```bash
+# 创建 .env 文件（可选）
+export STORAGE_MODE=file  # 可选：file, mysql, redis
+# export DATABASE_URL=mysql://user:password@host:3306/grok2api  # MySQL/Redis 时需要
+```
+
+5. **启动服务**
+```bash
+# 方式1：使用 uvicorn 直接运行（推荐，支持热重载）
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# 方式2：使用 Python 运行主文件（端口 8001）
+python main.py
+```
+
+6. **访问服务**
+- 使用方式1（端口 8000）：
+  - API 文档：http://localhost:8000/docs
+  - 管理后台：http://localhost:8000/login
+  - 健康检查：http://localhost:8000/health
+- 使用方式2（端口 8001）：
+  - API 文档：http://localhost:8001/docs
+  - 管理后台：http://localhost:8001/login
+  - 健康检查：http://localhost:8001/health
+
+**注意事项：**
+- 默认管理员账号：`admin` / `admin`（首次登录后建议修改）
+- 本地运行不包含 WARP 代理，如需代理请配置 `proxy_url`
+- 配置文件位于 `data/setting.toml`
+- Token 数据存储在 `data/token.json`（file 模式）
+
+<br>
+
+### 方式二：Docker Compose 运行（推荐用于生产部署）
+
+**前置要求：**
+- Docker
+- Docker Compose
+
+**步骤：**
+
+1. **创建 `docker-compose.yml` 文件**
 
 ```yaml
 services:
@@ -90,6 +159,169 @@ services:
 volumes:
   grok_data:
 ```
+
+2. **启动服务**
+```bash
+docker-compose up -d
+```
+
+3. **查看日志**
+```bash
+docker-compose logs -f
+```
+
+4. **停止服务**
+```bash
+docker-compose down
+```
+
+<br>
+
+### 方式三：Docker 运行
+
+**步骤：**
+
+1. **拉取镜像**
+```bash
+docker pull ghcr.io/chenyme/grok2api:latest
+```
+
+2. **运行容器**
+```bash
+docker run -d \
+  --name grok2api \
+  -p 8000:8000 \
+  -v grok_data:/app/data \
+  -v ./logs:/app/logs \
+  -e STORAGE_MODE=file \
+  --cap-add NET_ADMIN \
+  --cap-add SYS_ADMIN \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --sysctl net.ipv4.ip_forward=1 \
+  ghcr.io/chenyme/grok2api:latest
+```
+
+<br>
+
+### 方式四：从源码构建 Docker 镜像
+
+**步骤：**
+
+1. **构建镜像**
+```bash
+docker build -t grok2api:custom .
+```
+
+2. **运行容器**
+```bash
+docker run -d \
+  --name grok2api \
+  -p 8000:8000 \
+  -v grok_data:/app/data \
+  -v ./logs:/app/logs \
+  -e STORAGE_MODE=file \
+  --cap-add NET_ADMIN \
+  --cap-add SYS_ADMIN \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --sysctl net.ipv4.ip_forward=1 \
+  grok2api:custom
+```
+
+<br>
+
+## GitHub Actions 自动构建 Docker 镜像
+
+项目已配置 GitHub Actions 自动化工作流，可以自动构建和发布 Docker 镜像到 GitHub Container Registry (ghcr.io)。
+
+### 工作流触发条件
+
+工作流会在以下情况自动触发：
+
+1. **推送到 main 分支**：自动构建并推送 `latest` 标签
+2. **推送版本标签**（如 `v1.0.0`）：自动构建并推送对应版本标签
+3. **Pull Request**：仅构建镜像但不推送（用于验证）
+
+### 支持的架构
+
+自动构建支持多架构镜像：
+- **linux/amd64**：适用于 x86_64 服务器和 PC
+- **linux/arm64**：适用于 ARM 服务器（如 AWS Graviton）
+
+### 镜像标签说明
+
+| 触发条件 | 生成的标签 | 说明 |
+|---------|-----------|------|
+| 推送到 main | `ghcr.io/用户名/仓库名:latest` | 最新主分支版本（多架构） |
+| 推送到 main | `ghcr.io/用户名/仓库名:main` | 主分支版本（多架构） |
+| 推送标签 v1.2.3 | `ghcr.io/用户名/仓库名:v1.2.3` | 指定版本（多架构） |
+| 推送标签 v1.2.3 | `ghcr.io/用户名/仓库名:1.2.3` | 指定版本（多架构） |
+
+### 工作流配置文件
+
+工作流配置位于：`.github/workflows/docker.yml`
+
+**主要特性：**
+- ✅ 多架构构建（amd64 + arm64）
+- ✅ 自动推送到 GitHub Container Registry
+- ✅ 构建缓存加速
+- ✅ 自动版本标签管理
+- ✅ 合并多架构镜像为统一标签
+
+### 如何使用自动构建
+
+#### 方法一：推送到 main 分支（构建 latest）
+
+```bash
+# 提交代码并推送到 main 分支
+git add .
+git commit -m "更新代码"
+git push origin main
+
+# GitHub Actions 会自动构建并推送镜像
+# 镜像地址: ghcr.io/用户名/仓库名:latest
+```
+
+#### 方法二：创建版本标签（发布特定版本）
+
+```bash
+# 创建并推送版本标签
+git tag v1.0.0
+git push origin v1.0.0
+
+# GitHub Actions 会自动构建并推送镜像
+# 镜像地址: ghcr.io/用户名/仓库名:v1.0.0
+#         ghcr.io/用户名/仓库名:1.0.0
+```
+
+### 查看构建状态
+
+1. 访问 GitHub 仓库的 **Actions** 标签页
+2. 查看 "Build Docker Image" 工作流的运行状态
+3. 点击具体的运行实例查看详细日志
+
+### 拉取自动构建的镜像
+
+```bash
+# 拉取最新版本
+docker pull ghcr.io/用户名/仓库名:latest
+
+# 拉取特定版本
+docker pull ghcr.io/用户名/仓库名:v1.0.0
+
+# 拉取特定架构（可选）
+docker pull --platform linux/amd64 ghcr.io/用户名/仓库名:latest
+docker pull --platform linux/arm64 ghcr.io/用户名/仓库名:latest
+```
+
+### 权限配置
+
+GitHub Actions 使用内置的 `GITHUB_TOKEN` 自动进行身份验证，无需额外配置 secrets。如果需要推送到其他镜像仓库（如 Docker Hub），可以添加相应的 secrets：
+
+1. 进入仓库 **Settings** → **Secrets and variables** → **Actions**
+2. 添加需要的 secrets（如 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`）
+3. 修改 `.github/workflows/docker.yml` 添加 Docker Hub 登录步骤
+
+<br>
 
 ### WARP 网络代理自动安装
 
