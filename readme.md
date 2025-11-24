@@ -436,6 +436,8 @@ Docker 镜像已内置自动安装和启动 **Cloudflare WARP** 网络代理功�
 | POST  | /api/tokens/test        | 测试 Token 可用性   | ✅   |
 | GET   | /api/tokens/tags/all    | 获取所有标签列表    | ✅   |
 | GET   | /api/storage/mode       | 获取存储模式信息    | ✅   |
+| GET   | /api/system/status      | 获取系统状态信息    | ✅   |
+| GET   | /health                 | 健康检查端点        | ❌   |
 
 </details>
 
@@ -479,6 +481,72 @@ Docker 镜像已内置自动安装和启动 **Cloudflare WARP** 网络代理功�
 | filtered_tags              | grok    | 否   | 过滤响应标签（逗号分隔）                | "xaiartifact,xai:tool_usage_card,grok:render" |
 | show_thinking              | grok    | 否   | 显示思考过程 true(显示)/false(隐藏)     | true   |
 | temporary                  | grok    | 否   | 会话模式 true(临时)/false               | true   |
+
+<br>
+
+## WARP 连接问题修复
+
+本项目集成了 Cloudflare WARP 支持，提供网络代理功能。如果遇到 WARP 连接问题，可以使用以下解决方案：
+
+### 快速诊断和修复
+
+#### 1. 自动修复脚本
+```bash
+# 环境检查和修复（推荐）
+./scripts/warp_env_fix.sh
+
+# 快速修复常见问题
+./scripts/warp_quickfix.sh
+
+# 详细故障排除
+./scripts/warp_troubleshoot.sh
+```
+
+#### 2. API 状态检查
+```bash
+# 基础健康检查
+curl http://localhost:8000/health
+
+# 详细系统状态（需要登录）
+TOKEN=$(curl -s -X POST http://localhost:8000/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin"}' | jq -r '.token')
+
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/api/system/status
+```
+
+#### 3. 常见问题解决
+
+**"Registration Missing due to: Daemon Startup" 错误**
+```bash
+# 使用修复脚本
+./scripts/warp_env_fix.sh
+
+# 或手动修复
+mkdir -p /run/dbus
+dbus-daemon --system --nofork --nopidfile --address=unix:path=/run/dbus/system_bus_socket &
+warp-svc &
+warp-cli connect
+```
+
+**Docker 环境部署**
+```bash
+# 使用适当权限运行
+docker run -d \
+  --name grok2api \
+  --cap-add=NET_ADMIN \
+  --cap-add=SYS_ADMIN \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --sysctl net.ipv4.ip_forward=1 \
+  -p 8000:8000 \
+  grok2api
+```
+
+### 详细文档
+- [WARP修复完整指南](./WARP_FIX_GUIDE.md)
+- [WARP状态检查说明](./WARP_STATUS_CHECK.md)
+- [WARP注册缺失修复方案](./WARP_REGISTRATION_MISSING_FIX.md)
 
 <br>
 

@@ -106,36 +106,68 @@ async def health_check():
         
         async def quick_warp_check():
             try:
+                # 检查warp-cli是否存在
+                check_proc = await asyncio.create_subprocess_exec(
+                    "which", "warp-cli",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                check_stdout, check_stderr = await check_proc.communicate()
+                
+                if check_proc.returncode != 0:
+                    return {"connected": False, "installed": False, "status": "未安装"}
+                
+                # 检查WARP状态
                 proc = await asyncio.create_subprocess_exec(
                     "warp-cli", "status",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 stdout, stderr = await proc.communicate()
+                
                 if proc.returncode == 0:
                     status_output = stdout.decode('utf-8').strip()
-                    return "Connected" in status_output
-                return False
-            except:
-                return False
+                    if "Connected" in status_output:
+                        return {"connected": True, "installed": True, "status": "已连接"}
+                    elif "Connecting" in status_output:
+                        return {"connected": False, "installed": True, "status": "连接中"}
+                    else:
+                        return {"connected": False, "installed": True, "status": "未连接"}
+                else:
+                    error_output = stderr.decode('utf-8').strip()
+                    if "Registration Missing" in error_output:
+                        return {"connected": False, "installed": True, "status": "注册缺失", "error": error_output}
+                    elif "Daemon Startup" in error_output:
+                        return {"connected": False, "installed": True, "status": "守护进程启动失败", "error": error_output}
+                    else:
+                        return {"connected": False, "installed": True, "status": "错误", "error": error_output}
+            except Exception as e:
+                return {"connected": False, "installed": False, "status": "检查失败", "error": str(e)}
         
         # 在事件循环中运行检查
         loop = asyncio.get_event_loop()
-        warp_connected = await quick_warp_check()
+        warp_status = await quick_warp_check()
         
-        return {
+        response = {
             "status": "healthy",
             "service": "Grok2API",
-            "version": "1.0.3",
-            "warp_connected": warp_connected
+            "version": "1.3.1",
+            "warp": warp_status
         }
-    except:
+        
+        # 保持向后兼容性
+        response["warp_connected"] = warp_status.get("connected", False)
+        
+        return response
+        
+    except Exception as e:
         # 如果检查失败，返回基本状态
         return {
             "status": "healthy",
             "service": "Grok2API",
-            "version": "1.0.3",
-            "warp_connected": None
+            "version": "1.3.1",
+            "warp_connected": None,
+            "warp": {"connected": None, "installed": None, "status": "检查失败", "error": str(e)}
         }
 
 # 挂载MCP服务器 
