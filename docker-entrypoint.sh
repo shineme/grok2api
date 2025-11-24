@@ -44,6 +44,25 @@ else
     echo -e "${GREEN}[WARP] WARP 已安装${NC}"
 fi
 
+# 启动 D-Bus 服务（warp-svc 需要 D-Bus 来处理功能通知）
+echo -e "${YELLOW}[WARP] 启动 D-Bus 服务...${NC}"
+if ! command -v dbus-daemon &> /dev/null; then
+    echo -e "${YELLOW}[WARP] 安装 D-Bus...${NC}"
+    apt-get update
+    apt-get install -y --no-install-recommends dbus
+fi
+
+# 创建 D-Bus 运行目录
+mkdir -p /run/dbus
+
+# 启动 D-Bus 守护进程
+dbus-daemon --system --nofork --nopidfile --address=unix:path=/run/dbus/system_bus_socket &
+DBUS_PID=$!
+echo -e "${YELLOW}[WARP] D-Bus 守护进程 PID: $DBUS_PID${NC}"
+
+# 等待 D-Bus 启动
+sleep 1
+
 # 启动 WARP 服务
 echo -e "${YELLOW}[WARP] 启动 WARP 服务...${NC}"
 
